@@ -1,0 +1,50 @@
+--- # Install and configure a cluster of elasticsearch on EC2 launched instances
+- name: Install Elasticsearch RPM package on each EC2 instance
+  yum:
+     name: https://download.elastic.co/elasticsearch/release/org/elasticsearch/distribution/rpm/elasticsearch/2.3.3/elasticsearch-2.3.3.rpm
+     state: present
+
+- name: Register Elasticsearch as a system service
+  shell: chkconfig --add elasticsearch
+
+- name: Install AWS cloud plugin on each EC2 instance in the cluster
+  shell: /usr/share/elasticsearch/bin/plugin install cloud-aws
+
+# Configure the maximum JVM heap size should be based upon the machine's memory
+- name: Configure ES_HEAP_SIZE in /etc/sysconfig/elasticsearch
+  lineinfile:
+    path: /etc/sysconfig/elasticsearch
+    line: 'ES_HEAP_SIZE=256m'
+
+- name: Configure MAX_LOCKED_MEMORY in /etc/sysconfig/elasticsearch
+  lineinfile:
+    path: /etc/sysconfig/elasticsearch
+    line: 'MAX_LOCKED_MEMORY=unlimited'
+
+# Configure cluster settings in /etc/elasticsearch/elasticsearch.yml
+- name: Configure cluster name in /etc/elasticsearch/elasticsearch.yml
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    line: 'cluster.name: itzgio-escluster'
+
+- name: Configure memory lock in /etc/elasticsearch/elasticsearch.yml
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    line: 'bootstrap.mlockall: true'
+
+- debug: var=hostvars['localhost']['ec2']['instances']
+
+- name: Configure host network ip
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    line: 'network.host: ["{{ hostvars["localhost"]["ec2"]["instances"][play_hosts.index(inventory_hostname)].private_ip }}"]'
+
+- name: List all the master-eligible nodes ip addresses
+  lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    line: 'discovery.zen.ping.unicast.hosts: ["{{ hostvars["localhost"]["ec2"]["instances"][(play_hosts.index(inventory_hostname) + 1) % 3].private_ip }}", "{{ hostvars["localhost"]["ec2"]["instances"][(play_hosts.index(inventory_hostname) + 2) % 3].public_ip }}"]'
+
+# Start elasticsearch service
+- service:
+    name: elasticsearch
+    state: started

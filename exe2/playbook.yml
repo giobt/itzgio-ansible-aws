@@ -1,0 +1,14 @@
+--- # Create VPC and launch EC2 cluster with 3 instances
+- hosts: local
+  roles:
+    - vpc
+
+# Install elasticsearch and run cluster configurations on each EC2 instance
+- name: Configure instance(s) with elasticsearch
+  hosts: launched
+  remote_user: ec2-user
+  become: yes
+  become_method: sudo
+  connection: ssh
+  roles:
+    - elasticsearch

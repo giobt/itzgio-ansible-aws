@@ -1,0 +1,129 @@
+--- # Create a VPC with 1 public subnet. Vars in vars.yml
+
+# Create VPC and register return values in my_vpc
+- name:               Create VPC
+  ec2_vpc_net:
+    name:             "{{ vpc_name }}"
+    cidr_block:       "{{ vpc_cidr_block }}"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    state:            "present"
+  register: my_vpc
+
+# Save the id of the VPC in a new variable
+- name:               Set VPC ID in variable
+  set_fact:
+    vpc_id:           "{{ my_vpc.vpc.id }}"
+
+# Create the only public subnet in the VPC and register the result in a variable
+- name:               Create Public Subnet
+  ec2_vpc_subnet:
+    state:            "present"
+    vpc_id:           "{{ vpc_id }}"
+    cidr:             "{{ public_subnet_1_cidr }}"
+    az:               "{{ aws_region }}a"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    resource_tags:
+      Name:           "itzgio-public-subnet1"
+  register: my_public_subnet
+
+# Save the id of the Public Subnet in a new variable.
+- name:               Set Public Subnet ID in variable
+  set_fact:
+    public_subnet_id: "{{ my_public_subnet.subnet.id }}"
+
+
+# Every VPC needs at least one Internet Gateway.
+- name:               Create Internet Gateway for VPC
+  ec2_vpc_igw:
+    vpc_id:           "{{ vpc_id }}"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    state:            "present"
+  register: my_vpc_igw
+
+# Save the id of the Internet Gateway in a new variable.
+- name:               Set Internet Gateway ID in variable
+  set_fact:
+    igw_id:           "{{ my_vpc_igw.gateway_id }}"
+
+# Now we set up a Route Table.
+- name:               Set up public subnet route table
+  ec2_vpc_route_table:
+    vpc_id:           "{{ vpc_id }}"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    tags:
+      Name:           "itzgio-prt1"
+    subnets:
+      - "{{ public_subnet_id }}"
+    routes:
+      - dest:         "0.0.0.0/0"
+        gateway_id:   "{{ igw_id }}"
+
+# We create our Main Security Group.
+- name:               Create Main Security Group
+  ec2_group:
+    name:             "{{ security_group }}"
+    description:      "inbound{tcp{ssh:22,esRestApi:9200,esClusterComm:9300}}"
+    vpc_id:           "{{ vpc_id }}"
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    rules:
+      - proto:        "tcp"
+        from_port:    "22"
+        to_port:      "22"
+        cidr_ip:      "{{ my_ip }}"
+      - proto:        "tcp"
+        from_port:    "9200"
+        to_port:      "9200"
+        cidr_ip:      "{{ my_ip }}"
+      - proto:        "tcp"
+        from_port:    "9300"
+        to_port:      "9300"
+        cidr_ip:      "{{ my_ip }}"
+
+# We provision 3 EC2 t2.micro instances for our elasticsearch cluster
+- name: Create EC2 elasticsearch cluster
+  ec2:
+    region:           "{{ aws_region }}"
+    aws_access_key:   "{{ aws_access_key }}"
+    aws_secret_key:   "{{ aws_secret_key }}"
+    key_name:         "{{ key_name }}"
+    instance_type:    "{{ instance_type }}"
+    image:            "{{ image_id }}"
+    wait:             yes
+    group:            "{{ security_group }}"
+    count:            "3"
+    vpc_subnet_id:    "{{ public_subnet_id }}"
+    assign_public_ip: yes
+    instance_tags:
+        Name: "{{ ec2_instance_name }}"
+  register: ec2
+
+# Register EC2 instances ip addresses as facts
+- set_fact:
+    ec2_instances: "{{ ec2.instances }}"
+
+# Add EC2 instances to our inventory
+- name: Add new instance to host group
+  add_host:
+    hostname: "{{ item.public_dns_name }}"
+    groupname: launched
+  with_items: "{{ ec2.instances }}"
+
+# Wait for SSH to come up
+- name: Wait for SSH to come up
+  wait_for:
+    host: "{{ item.public_dns_name }}"
+    port: 22
+    delay: 10
+    timeout: 320
+    state: started
+  with_items: "{{ ec2.instances }}"
