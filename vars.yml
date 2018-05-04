@@ -1,8 +1,8 @@
 ---
 # AWS Credentials
-aws_access_key: "AKIAIMOXJFQCMAOZYUGQ"
-aws_secret_key: "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"
-aws_region:     "us-west-2"
+aws_access_key: "$AWS_ACCESS_KEY"
+aws_secret_key: "$AWS_SECRET_KEY"
+aws_region:     "$AWS_DEFAULT_REGION"
 
 # VPC Information
 vpc_name:       "itzgio-vpc"
